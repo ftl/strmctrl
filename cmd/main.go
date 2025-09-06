@@ -50,6 +50,7 @@ func monitor(ctx context.Context, serial string) {
 	}
 	defer device.Close()
 
+	device.Clear(ctx)
 	device.SetBrightness(ctx, 50)
 	device.SetImages(ctx, testImages)
 

@@ -272,7 +272,11 @@ func (d *Device) SetBrightness(ctx context.Context, percent uint8) error {
 
 // Clear the display buttons.
 func (d *Device) Clear(ctx context.Context) error {
-	return fmt.Errorf("not yet implemented")
+	err := d.sendCRTCommand(ctx, "CLE", 0x00, 0xff)
+	if err != nil {
+		return err
+	}
+	return d.sendCRTCommand(ctx, "STP")
 }
 
 // SetImage sets the image of a specific display button.
