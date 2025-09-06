@@ -1,9 +1,11 @@
 package strmctrl
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"image"
+	"image/jpeg"
 
 	"github.com/google/gousb"
 )
@@ -281,12 +283,35 @@ func (d *Device) Clear(ctx context.Context) error {
 
 // SetImage sets the image of a specific display button.
 func (d *Device) SetImage(ctx context.Context, display Control, img image.Image) error {
-	return fmt.Errorf("not yet implemented")
+	if !display.IsDisplay() {
+		return fmt.Errorf("the given control %d is not a display", display)
+	}
+
+	err := d.sendImage(ctx, uint8(display), img)
+	if err != nil {
+		return err
+	}
+	return d.sendCRTCommand(ctx, "STP")
 }
 
 // SetImages sets the images of all six display buttons at once.
 func (d *Device) SetImages(ctx context.Context, imgs [6]image.Image) error {
-	return fmt.Errorf("not yet implemented")
+	err := d.sendCRTCommand(ctx, "CLE", 0x00, 0xff)
+	if err != nil {
+		return err
+	}
+
+	for i, img := range imgs {
+		if img == nil {
+			continue
+		}
+		err = d.sendImage(ctx, uint8(i+1), img)
+		if err != nil {
+			return err
+		}
+	}
+
+	return d.sendCRTCommand(ctx, "STP")
 }
 
 func (d *Device) sendCRTCommand(ctx context.Context, cmd string, args ...byte) error {
@@ -311,4 +336,48 @@ func (d *Device) sendCRTCommand(ctx context.Context, cmd string, args ...byte) e
 	}
 
 	return nil
+}
+
+func (d *Device) sendImage(ctx context.Context, index uint8, img image.Image) error {
+	if img.Bounds().Max.X != ImageSize || img.Bounds().Max.Y != ImageSize {
+		return fmt.Errorf("sendImage: the image must have a size of %dx%d pixels", ImageSize, ImageSize)
+	}
+
+	jpg, err := toJPEG(img)
+	if err != nil {
+		return err
+	}
+
+	imageSize := uint16(len(jpg))
+	args := []byte{
+		byte(uint8(imageSize >> 8)),
+		byte(uint8(imageSize & 0x00ff)),
+		index,
+	}
+	err = d.sendCRTCommand(ctx, "BAT", args...)
+	if err != nil {
+		return err
+	}
+
+	n, err := d.epOut.WriteContext(ctx, jpg)
+	if err != nil {
+		return err
+	}
+	if n < int(imageSize) {
+		return fmt.Errorf("sendImage: %d bytes written, expected %d bytes", n, imageSize)
+	}
+
+	return nil
+}
+
+func toJPEG(img image.Image) ([]byte, error) {
+	buffer := bytes.NewBuffer([]byte{})
+	opts := jpeg.Options{
+		Quality: 100,
+	}
+	err := jpeg.Encode(buffer, img, &opts)
+	if err != nil {
+		return nil, err
+	}
+	return buffer.Bytes(), err
 }
