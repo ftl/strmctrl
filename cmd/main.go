@@ -54,7 +54,7 @@ func monitor(ctx context.Context, serial string) {
 	device.SetBrightness(ctx, 50)
 	device.SetImages(ctx, testImages)
 
-	events, err := device.ReadEvents()
+	events, err := device.ReadEvents(ctx)
 	if err != nil {
 		log.Fatal(err)
 	}

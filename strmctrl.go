@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"image"
 	"image/jpeg"
+	"log"
 	"time"
 
 	"github.com/google/gousb"
@@ -93,8 +94,8 @@ func (c Control) IsKnob() bool {
 type Action uint8
 
 const (
-	Pressed Action = iota + 1
-	Released
+	Released Action = iota
+	Pressed
 	TurnedCW
 	TurnedCCW
 )
@@ -216,6 +217,13 @@ func Open(serial string) (*Device, error) {
 		result.Close()
 		return nil, fmt.Errorf("cannot setup endpoints: %w", err)
 	}
+
+	err = result.init()
+	if err != nil {
+		result.Close()
+		return nil, fmt.Errorf("cannot initialize device: %w", err)
+	}
+
 	go result.keepAlive()
 
 	return result, nil
@@ -245,6 +253,14 @@ func (d *Device) setupEndpoints() error {
 	}
 
 	return nil
+}
+
+func (d *Device) init() error {
+	err := d.sendCRTCommand(context.Background(), "DIS")
+	if err != nil {
+		return err
+	}
+	return d.sendCRTCommand(context.Background(), "CONNECT")
 }
 
 func (d *Device) keepAlive() {
@@ -286,8 +302,85 @@ func (d *Device) Close() {
 
 // ReadEvents returns a channel that provides the incoming events.
 // This function starts a goroutine and must only be called once.
-func (d *Device) ReadEvents() (chan Event, error) {
-	return nil, fmt.Errorf("not yet implemented")
+func (d *Device) ReadEvents(ctx context.Context) (<-chan Event, error) {
+	events := make(chan Event, 10)
+
+	go func() {
+		defer close(events)
+
+		buf := make([]byte, d.epIn.Desc.MaxPacketSize)
+		tick := time.NewTicker(d.epIn.Desc.PollInterval)
+		defer tick.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-d.closed:
+				return
+			case <-tick.C:
+				n, err := d.epIn.ReadContext(ctx, buf)
+				if err != nil {
+					continue
+				}
+
+				if n < 11 {
+					log.Print("received insufficient data from IN2 endpoint: %d", n)
+				}
+				event, err := newEvent(hwControl(buf[9]), buf[10])
+				if err == nil { // ignore faulty events
+					events <- event
+				}
+			}
+		}
+	}()
+
+	return events, nil
+}
+
+func newEvent(control hwControl, state uint8) (Event, error) {
+	switch {
+	case control >= displayTopLeft && control <= displayBottomRight:
+		return newPressEvent(Control(control), state)
+	case control == buttonLeft:
+		return newPressEvent(ButtonLeft, state)
+	case control == buttonCenter:
+		return newPressEvent(ButtonCenter, state)
+	case control == buttonRight:
+		return newPressEvent(ButtonRight, state)
+	case control == knobTop:
+		return newPressEvent(KnobTop, state)
+	case control == knobBottomLeft:
+		return newPressEvent(KnobBottomLeft, state)
+	case control == knobBottomRight:
+		return newPressEvent(KnobBottomRight, state)
+	case control == knobTopCW, control == knobTopCCW:
+		return newRotateEvent(KnobTop, control)
+	case control == knobBottomLeftCW, control == knobBottomLeftCCW:
+		return newRotateEvent(KnobBottomLeft, control)
+	case control == knobBottomRightCW, control == knobBottomRightCCW:
+		return newRotateEvent(KnobBottomRight, control)
+	default:
+		return Event{}, fmt.Errorf("unknown hw control: 0x%02x state: 0x%02x", control, state)
+	}
+}
+
+func newPressEvent(control Control, state uint8) (Event, error) {
+	return Event{
+		Control: control,
+		Action:  Action(state),
+	}, nil
+}
+
+func newRotateEvent(control Control, hwcontrol hwControl) (Event, error) {
+	action := TurnedCCW
+	if hwcontrol%2 == 1 {
+		action = TurnedCW
+	}
+
+	return Event{
+		Control: control,
+		Action:  action,
+	}, nil
 }
 
 // SetBrightness in percent (0-100).
