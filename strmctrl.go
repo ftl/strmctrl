@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"image"
 	"image/jpeg"
+	"time"
 
 	"github.com/google/gousb"
 )
@@ -134,6 +135,8 @@ type Device struct {
 	usb    *gousb.Context
 	device *gousb.Device
 
+	closed chan struct{}
+
 	config *gousb.Config
 	intf0  *gousb.Interface
 	epIn   *gousb.InEndpoint
@@ -205,6 +208,7 @@ func Open(serial string) (*Device, error) {
 	result := &Device{
 		usb:    usb,
 		device: foundDevice,
+		closed: make(chan struct{}),
 	}
 
 	err = result.setupEndpoints()
@@ -212,6 +216,7 @@ func Open(serial string) (*Device, error) {
 		result.Close()
 		return nil, fmt.Errorf("cannot setup endpoints: %w", err)
 	}
+	go result.keepAlive()
 
 	return result, nil
 }
@@ -242,8 +247,29 @@ func (d *Device) setupEndpoints() error {
 	return nil
 }
 
+func (d *Device) keepAlive() {
+	tick := time.NewTicker(5 * time.Second)
+	defer tick.Stop()
+
+	for {
+		select {
+		case <-d.closed:
+			return
+		case <-tick.C:
+			d.sendCRTCommand(context.Background(), "CONNECT")
+		}
+	}
+}
+
 // Close the device and clean up the used system resources.
 func (d *Device) Close() {
+	select {
+	case <-d.closed:
+		return
+	default:
+		close(d.closed)
+	}
+
 	if d.intf0 != nil {
 		d.intf0.Close()
 	}
