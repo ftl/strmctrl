@@ -44,19 +44,21 @@ func list() {
 }
 
 func monitor(ctx context.Context, serial string) {
-	device, err := strmctrl.Open(serial, false)
+	device, err := strmctrl.Open(serial)
 	if err != nil {
 		log.Fatal(err)
 	}
 	defer device.Close()
 
-	device.SetBrightness(50)
-	device.SetImages(testImages)
+	device.SetBrightness(ctx, 50)
+	device.SetImages(ctx, testImages)
 
 	events, err := device.ReadEvents()
 	if err != nil {
 		log.Fatal(err)
 	}
+
+	log.Print("device ready")
 
 	for {
 		select {

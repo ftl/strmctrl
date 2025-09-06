@@ -1,6 +1,7 @@
 package strmctrl
 
 import (
+	"context"
 	"fmt"
 	"image"
 
@@ -130,14 +131,16 @@ const (
 type Device struct {
 	usb    *gousb.Context
 	device *gousb.Device
+
+	config *gousb.Config
+	intf0  *gousb.Interface
+	epIn   *gousb.InEndpoint
+	epOut  *gousb.OutEndpoint
 }
 
 // Open the Stream Controller SE device with the given serial number. If the serial number
 // is empty, the first available device is opened.
-//
-// autoDetach indicates if the device should be automatically detached if it is already used by
-// another process. It will be reattached after Device.Close() was called.
-func Open(serial string, autoDetach bool) (*Device, error) {
+func Open(serial string) (*Device, error) {
 	usb := gousb.NewContext()
 
 	devices, err := usb.OpenDevices(func(desc *gousb.DeviceDesc) bool {
@@ -184,32 +187,73 @@ func Open(serial string, autoDetach bool) (*Device, error) {
 		return nil, fmt.Errorf("cannot find device %s", serial)
 	}
 
-	err = foundDevice.SetAutoDetach(autoDetach)
+	err = foundDevice.SetAutoDetach(true)
 	if err != nil {
 		foundDevice.Close()
 		usb.Close()
 		return nil, fmt.Errorf("cannot set autoDetach: %w", err)
 	}
-
-	return &Device{
-		usb:    usb,
-		device: foundDevice,
-	}, nil
-}
-
-// Close the device and clean up the used system resources.
-func (d *Device) Close() error {
-	err := d.device.Close()
+	err = foundDevice.Reset()
 	if err != nil {
-		return fmt.Errorf("cannot close device: %w", err)
+		foundDevice.Close()
+		usb.Close()
+		return nil, fmt.Errorf("cannot reset device: %v", err)
 	}
 
-	err = d.usb.Close()
+	result := &Device{
+		usb:    usb,
+		device: foundDevice,
+	}
+
+	err = result.setupEndpoints()
 	if err != nil {
-		return fmt.Errorf("cannot close USB context: %w", err)
+		result.Close()
+		return nil, fmt.Errorf("cannot setup endpoints: %w", err)
+	}
+
+	return result, nil
+}
+
+func (d *Device) setupEndpoints() error {
+	var err error
+
+	d.config, err = d.device.Config(1)
+	if err != nil {
+		return fmt.Errorf("cannot open config: %w", err)
+	}
+
+	d.intf0, err = d.config.Interface(0, 0)
+	if err != nil {
+		return fmt.Errorf("cannot get interface: %w", err)
+	}
+
+	d.epIn, err = d.intf0.InEndpoint(2)
+	if err != nil {
+		return fmt.Errorf("cannot create IN endpoint: %w", err)
+	}
+
+	d.epOut, err = d.intf0.OutEndpoint(3)
+	if err != nil {
+		return fmt.Errorf("cannot create OUT endpoint: %w", err)
 	}
 
 	return nil
+}
+
+// Close the device and clean up the used system resources.
+func (d *Device) Close() {
+	if d.intf0 != nil {
+		d.intf0.Close()
+	}
+	if d.config != nil {
+		d.config.Close()
+	}
+	if d.device != nil {
+		d.device.Close()
+	}
+	if d.usb != nil {
+		d.usb.Close()
+	}
 }
 
 // ReadEvents returns a channel that provides the incoming events.
@@ -219,21 +263,48 @@ func (d *Device) ReadEvents() (chan Event, error) {
 }
 
 // SetBrightness in percent (0-100).
-func (d *Device) SetBrightness(percent uint8) error {
-	return fmt.Errorf("not yet implemented")
+func (d *Device) SetBrightness(ctx context.Context, percent uint8) error {
+	if percent > 100 {
+		percent = 100
+	}
+	return d.sendCRTCommand(ctx, "LIG", percent)
 }
 
 // Clear the display buttons.
-func (d *Device) Clear() error {
+func (d *Device) Clear(ctx context.Context) error {
 	return fmt.Errorf("not yet implemented")
 }
 
 // SetImage sets the image of a specific display button.
-func (d *Device) SetImage(display Control, img image.Image) error {
+func (d *Device) SetImage(ctx context.Context, display Control, img image.Image) error {
 	return fmt.Errorf("not yet implemented")
 }
 
 // SetImages sets the images of all six display buttons at once.
-func (d *Device) SetImages(imgs [6]image.Image) error {
+func (d *Device) SetImages(ctx context.Context, imgs [6]image.Image) error {
 	return fmt.Errorf("not yet implemented")
+}
+
+func (d *Device) sendCRTCommand(ctx context.Context, cmd string, args ...byte) error {
+	const prefix = "CRT"
+
+	cmdBytes := make([]byte, 0, len(prefix)+2+len(cmd)+2+len(args))
+	cmdBytes = append(cmdBytes, []byte(prefix)...)
+	cmdBytes = append(cmdBytes, 0, 0)
+	cmdBytes = append(cmdBytes, []byte(cmd)...)
+	cmdBytes = append(cmdBytes, 0, 0)
+	cmdBytes = append(cmdBytes, args...)
+
+	outbuf := make([]byte, d.epOut.Desc.MaxPacketSize)
+	copy(outbuf, cmdBytes)
+
+	n, err := d.epOut.WriteContext(ctx, outbuf)
+	if err != nil {
+		return err
+	}
+	if n < len(outbuf) {
+		return fmt.Errorf("sendCRTCommand: %d bytes written, expected %d bytes", n, len(outbuf))
+	}
+
+	return nil
 }
