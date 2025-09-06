@@ -2,8 +2,14 @@ package strmctrl
 
 import (
 	"fmt"
+	"image"
 
 	"github.com/google/gousb"
+)
+
+const (
+	// ImageSize is the width and height of the quadratic images for the display buttons in pixels.
+	ImageSize = 64
 )
 
 const (
@@ -51,9 +57,116 @@ func List() ([]DeviceInfo, error) {
 	return result, nil
 }
 
-func Open(serial string) (*Device, error) {
+type Control uint8
+
+const (
+	DisplayTopLeft Control = iota + 1
+	DisplayTopCenter
+	DisplayTopRight
+	DisplayBottomLeft
+	DisplayBottomCenter
+	DisplayBottomRight
+	ButtonLeft
+	ButtonCenter
+	ButtonRight
+	KnobTop
+	KnobBottomLeft
+	KnobBottomRight
+)
+
+func (c Control) IsDisplay() bool {
+	return c >= DisplayTopLeft && c <= DisplayBottomRight
+}
+
+func (c Control) IsButton() bool {
+	return c >= ButtonLeft && c <= ButtonRight
+}
+
+func (c Control) IsKnob() bool {
+	return c >= KnobTop && c <= KnobBottomRight
+}
+
+type Action uint8
+
+const (
+	Pressed Action = iota + 1
+	Released
+	TurnedCW
+	TurnedCCW
+)
+
+type Event struct {
+	Control Control
+	Action  Action
+}
+
+type hwControl uint8
+
+const (
+	displayTopLeft      hwControl = 0x01
+	displayTopCenter    hwControl = 0x02
+	displayTopRight     hwControl = 0x03
+	displayBottomLeft   hwControl = 0x04
+	displayBottomCenter hwControl = 0x05
+	displayBottomRight  hwControl = 0x06
+
+	buttonLeft   hwControl = 0x25
+	buttonCenter hwControl = 0x30
+	buttonRight  hwControl = 0x31
+
+	knobTop         hwControl = 0x35
+	knobBottomLeft  hwControl = 0x33
+	knobBottomRight hwControl = 0x34
+
+	knobTopCW          hwControl = 0x51
+	knobTopCCW         hwControl = 0x50
+	knobBottomLeftCW   hwControl = 0x91
+	knobBottomLeftCCW  hwControl = 0x90
+	knobBottomRightCW  hwControl = 0x61
+	knobBottomRightCCW hwControl = 0x60
+)
+
+// Device represents one Stream Controller SE that is connected via USB.
+type Device struct {
+	device *gousb.Device
+}
+
+// Open the Stream Controller SE device with the given serial number. If the serial number
+// is empty, the first available device is opened.
+//
+// autoAttach indicates if the device should be attached even if it is already used by
+// another process.
+func Open(serial string, autoAttach bool) (*Device, error) {
 	return nil, fmt.Errorf("not yet implemented")
 }
 
-type Device struct {
+// Close the device and clean up the used system resources.
+func (d *Device) Close() error {
+	return d.device.Close()
+}
+
+// ReadEvents returns a channel that provides the incoming events.
+// This function starts a goroutine and must only be called once.
+func (d *Device) ReadEvents() (chan Event, error) {
+	return nil, fmt.Errorf("not yet implemented")
+}
+
+// SetBrightness in percent (0-100).
+func (d *Device) SetBrightness(percent uint8) error {
+	return fmt.Errorf("not yet implemented")
+}
+
+// Clear the display buttons.
+func (d *Device) Clear() error {
+	return fmt.Errorf("not yet implemented")
+}
+
+// SetImage sets the image of a specific display button.
+func (d *Device) SetImage(display Control, img image.Image) error {
+	return fmt.Errorf("not yet implemented")
+}
+
+// SetImages sets the images of all six display buttons at once.
+func (d *Device) SetImages(imgs [6]image.Image) error {
+	return fmt.Errorf("not yet implemented")
 }
