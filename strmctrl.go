@@ -128,21 +128,88 @@ const (
 
 // Device represents one Stream Controller SE that is connected via USB.
 type Device struct {
+	usb    *gousb.Context
 	device *gousb.Device
 }
 
 // Open the Stream Controller SE device with the given serial number. If the serial number
 // is empty, the first available device is opened.
 //
-// autoAttach indicates if the device should be attached even if it is already used by
-// another process.
-func Open(serial string, autoAttach bool) (*Device, error) {
-	return nil, fmt.Errorf("not yet implemented")
+// autoDetach indicates if the device should be automatically detached if it is already used by
+// another process. It will be reattached after Device.Close() was called.
+func Open(serial string, autoDetach bool) (*Device, error) {
+	usb := gousb.NewContext()
+
+	devices, err := usb.OpenDevices(func(desc *gousb.DeviceDesc) bool {
+		return desc.Vendor == vid && desc.Product == pid
+	})
+	if err != nil {
+		for _, device := range devices {
+			if device != nil {
+				device.Close()
+			}
+		}
+		usb.Close()
+		return nil, fmt.Errorf("cannot find device: %w", err)
+	}
+
+	var foundDevice *gousb.Device
+	for _, device := range devices {
+		if foundDevice != nil {
+			device.Close()
+			continue
+		}
+
+		if serial == "" {
+			foundDevice = device
+			continue
+		}
+
+		deviceSerial, err := device.SerialNumber()
+		if err != nil {
+			device.Close()
+			continue
+		}
+
+		if serial == deviceSerial {
+			foundDevice = device
+			continue
+		}
+
+		device.Close()
+	}
+
+	if foundDevice == nil {
+		usb.Close()
+		return nil, fmt.Errorf("cannot find device %s", serial)
+	}
+
+	err = foundDevice.SetAutoDetach(autoDetach)
+	if err != nil {
+		foundDevice.Close()
+		usb.Close()
+		return nil, fmt.Errorf("cannot set autoDetach: %w", err)
+	}
+
+	return &Device{
+		usb:    usb,
+		device: foundDevice,
+	}, nil
 }
 
 // Close the device and clean up the used system resources.
 func (d *Device) Close() error {
-	return d.device.Close()
+	err := d.device.Close()
+	if err != nil {
+		return fmt.Errorf("cannot close device: %w", err)
+	}
+
+	err = d.usb.Close()
+	if err != nil {
+		return fmt.Errorf("cannot close USB context: %w", err)
+	}
+
+	return nil
 }
 
 // ReadEvents returns a channel that provides the incoming events.
