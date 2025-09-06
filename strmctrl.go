@@ -100,6 +100,14 @@ const (
 	TurnedCCW
 )
 
+func (a Action) IsPress() bool {
+	return a >= Released && a <= Pressed
+}
+
+func (a Action) IsRotation() bool {
+	return a >= TurnedCW && a <= TurnedCCW
+}
+
 type Event struct {
 	Control Control
 	Action  Action
