@@ -112,14 +112,20 @@ func rotationOffset(action strmctrl.Action) int {
 
 func rotateImages(action strmctrl.Action) {
 	offset := rotationOffset(action)
-
-	newImages := [6]image.Image{}
-	for i := range images {
-		newI := (i + offset) % len(images)
-		if newI < 0 {
-			newI = len(images) + newI
+	last := len(images) - 1
+	if offset > 0 {
+		buf := images[last]
+		for i := range images {
+			img := images[i]
+			images[i] = buf
+			buf = img
 		}
-		newImages[newI] = images[i]
+	} else {
+		buf := images[0]
+		for i := range images {
+			img := images[last-i]
+			images[last-i] = buf
+			buf = img
+		}
 	}
-	images = newImages
 }
