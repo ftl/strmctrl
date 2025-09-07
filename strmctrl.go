@@ -148,10 +148,11 @@ type Device struct {
 
 	closed chan struct{}
 
-	config *gousb.Config
-	intf0  *gousb.Interface
-	epIn   *gousb.InEndpoint
-	epOut  *gousb.OutEndpoint
+	config  *gousb.Config
+	intf0   *gousb.Interface
+	epIn    *gousb.InEndpoint
+	epOut   *gousb.OutEndpoint
+	lastOut time.Time
 }
 
 // Open the Stream Controller SE device with the given serial number. If the serial number
@@ -469,7 +470,7 @@ func (d *Device) sendCRTCommand(ctx context.Context, cmd string, args ...byte) e
 	outbuf := make([]byte, d.epOut.Desc.MaxPacketSize)
 	copy(outbuf, cmdBytes)
 
-	n, err := d.epOut.WriteContext(ctx, outbuf)
+	n, err := d.writeData(ctx, outbuf)
 	if err != nil {
 		return err
 	}
@@ -501,7 +502,7 @@ func (d *Device) sendImage(ctx context.Context, index uint8, img image.Image) er
 		return err
 	}
 
-	n, err := d.epOut.WriteContext(ctx, jpg)
+	n, err := d.writeData(ctx, jpg)
 	if err != nil {
 		return err
 	}
@@ -510,6 +511,40 @@ func (d *Device) sendImage(ctx context.Context, index uint8, img image.Image) er
 	}
 
 	return nil
+}
+
+func (d *Device) writeData(ctx context.Context, data []byte) (int, error) {
+	bytesWritten := 0
+	chunkSize := d.epOut.Desc.MaxPacketSize
+	chunk := make([]byte, chunkSize)
+	for i := 0; i < len(data); i += chunkSize {
+		d.maintainPollInterval()
+
+		clear(chunk)
+		end := min(i+chunkSize, len(data))
+		copy(chunk, data[i:end])
+
+		n, err := d.epOut.WriteContext(ctx, chunk)
+		if err != nil {
+			return 0, err
+		}
+		if n != chunkSize {
+			return 0, fmt.Errorf("writeData: %d bytes written, expected %d bytes", n, chunkSize)
+		}
+		bytesWritten = end
+	}
+
+	return bytesWritten, nil
+}
+
+func (d *Device) maintainPollInterval() {
+	now := time.Now()
+	nextWrite := d.lastOut.Add(d.epOut.Desc.PollInterval)
+	if nextWrite.After(now) {
+		waitDuration := nextWrite.Sub(now)
+		time.Sleep(waitDuration)
+	}
+	d.lastOut = time.Now()
 }
 
 func toJPEG(img image.Image) ([]byte, error) {
