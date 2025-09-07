@@ -313,6 +313,11 @@ func (d *Device) Close() {
 	}
 }
 
+func (d *Device) Descriptor() string {
+	serial, _ := d.device.SerialNumber()
+	return fmt.Sprintf("Bus %03d Device %03d Serial: %s", d.device.Desc.Bus, d.device.Desc.Address, serial)
+}
+
 // ReadEvents returns a channel that provides the incoming events.
 // This function starts a goroutine and must only be called once.
 func (d *Device) ReadEvents(ctx context.Context) (<-chan Event, error) {

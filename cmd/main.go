@@ -62,7 +62,7 @@ func monitor(ctx context.Context, serial string) {
 		log.Fatal(err)
 	}
 
-	log.Print("device ready")
+	log.Printf("device %s ready", device.Descriptor())
 	defer log.Print("bye")
 
 	for {
