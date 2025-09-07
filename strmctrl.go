@@ -20,6 +20,8 @@ const (
 const (
 	vid = gousb.ID(0x1500)
 	pid = gousb.ID(0x3001)
+
+	commandTimeout = 100 * time.Millisecond
 )
 
 type DeviceInfo struct {
@@ -264,11 +266,11 @@ func (d *Device) setupEndpoints() error {
 }
 
 func (d *Device) init() error {
-	err := d.sendCRTCommand(context.Background(), "DIS")
+	err := d.sendCRTCommandWithTimeout("DIS")
 	if err != nil {
 		return err
 	}
-	return d.sendCRTCommand(context.Background(), "CONNECT")
+	return d.sendCRTCommandWithTimeout("CONNECT")
 }
 
 func (d *Device) keepAlive() {
@@ -280,7 +282,7 @@ func (d *Device) keepAlive() {
 		case <-d.closed:
 			return
 		case <-tick.C:
-			d.sendCRTCommand(context.Background(), "CONNECT")
+			d.sendCRTCommandWithTimeout("CONNECT")
 		}
 	}
 }
@@ -293,6 +295,9 @@ func (d *Device) Close() {
 	default:
 		close(d.closed)
 	}
+
+	d.sendCRTCommandWithTimeout("CLE", 0x00, 0xff)
+	d.sendCRTCommandWithTimeout("STP")
 
 	if d.intf0 != nil {
 		d.intf0.Close()
@@ -321,8 +326,6 @@ func (d *Device) ReadEvents(ctx context.Context) (<-chan Event, error) {
 		defer tick.Stop()
 		for {
 			select {
-			case <-ctx.Done():
-				return
 			case <-d.closed:
 				return
 			case <-tick.C:
@@ -332,7 +335,7 @@ func (d *Device) ReadEvents(ctx context.Context) (<-chan Event, error) {
 				}
 
 				if n < 11 {
-					log.Print("received insufficient data from IN2 endpoint: %d", n)
+					log.Printf("received insufficient data from IN2 endpoint: %d", n)
 				}
 				event, err := newEvent(hwControl(buf[9]), buf[10])
 				if err == nil { // ignore faulty events
@@ -439,6 +442,13 @@ func (d *Device) SetImages(ctx context.Context, imgs [6]image.Image) error {
 	}
 
 	return d.sendCRTCommand(ctx, "STP")
+}
+
+func (d *Device) sendCRTCommandWithTimeout(cmd string, args ...byte) error {
+	ctx, cancel := context.WithTimeout(context.Background(), commandTimeout)
+	defer cancel()
+
+	return d.sendCRTCommand(ctx, cmd, args...)
 }
 
 func (d *Device) sendCRTCommand(ctx context.Context, cmd string, args ...byte) error {
