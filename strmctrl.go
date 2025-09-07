@@ -321,7 +321,7 @@ func (d *Device) Descriptor() string {
 // ReadEvents returns a channel that provides the incoming events.
 // This function starts a goroutine and must only be called once.
 func (d *Device) ReadEvents(ctx context.Context) (<-chan Event, error) {
-	events := make(chan Event, 10)
+	events := make(chan Event)
 
 	go func() {
 		defer close(events)
