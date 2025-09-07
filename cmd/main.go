@@ -31,7 +31,13 @@ func main() {
 
 	if len(os.Args) <= 1 {
 		list()
-	} else {
+		return
+	}
+
+	switch os.Args[1] {
+	case "any":
+		monitor(ctx, "")
+	default:
 		monitor(ctx, os.Args[1])
 	}
 }
