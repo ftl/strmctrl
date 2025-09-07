@@ -68,7 +68,7 @@ func monitor(ctx context.Context, serial string) {
 		log.Fatal(err)
 	}
 
-	log.Printf("device %s ready", device.Descriptor())
+	log.Printf("device %s is ready", device.Descriptor())
 	defer log.Print("bye")
 
 	for {
@@ -90,11 +90,21 @@ func generateImage(clr color.RGBA) image.Image {
 func handleEvent(ctx context.Context, d *strmctrl.Device, e strmctrl.Event) {
 	log.Printf("%+v", e)
 	switch {
-	case e.Control == strmctrl.KnobTop && e.Action.IsRotation():
+	case e.IsRotation(strmctrl.KnobTop):
 		rotateImages(e.Action)
 		d.SetImages(ctx, images)
-	case e.Control == strmctrl.KnobBottomLeft && e.Action.IsRotation():
-		brightness = max(0, min(brightness+uint8(rotationOffset(e.Action)), 100))
+	case e.Is(strmctrl.ButtonLeft, strmctrl.Pressed):
+		brightness = uint8(max(0, int(brightness)-10))
+		d.SetBrightness(ctx, brightness)
+	case e.Is(strmctrl.ButtonCenter, strmctrl.Pressed):
+		if brightness < 50 {
+			brightness = 100
+		} else {
+			brightness = 0
+		}
+		d.SetBrightness(ctx, brightness)
+	case e.Is(strmctrl.ButtonRight, strmctrl.Pressed):
+		brightness = min(brightness+10, 100)
 		d.SetBrightness(ctx, brightness)
 	}
 }

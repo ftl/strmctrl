@@ -115,6 +115,18 @@ type Event struct {
 	Action  Action
 }
 
+func (e Event) Is(control Control, action Action) bool {
+	return e.Control == control && e.Action == action
+}
+
+func (e Event) IsPress(control Control) bool {
+	return e.Control == control && e.Action.IsPress()
+}
+
+func (e Event) IsRotation(control Control) bool {
+	return e.Control == control && e.Action.IsRotation()
+}
+
 type hwControl uint8
 
 const (
